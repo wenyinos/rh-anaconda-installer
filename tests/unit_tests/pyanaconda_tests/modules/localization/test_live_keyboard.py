@@ -19,19 +19,50 @@ import unittest
 from unittest.mock import patch
 
 from pyanaconda.modules.localization.live_keyboard import GnomeShellKeyboard, \
-    get_live_keyboard_instance
+    KdePlasmaKeyboard, _get_live_desktop, get_live_keyboard_instance
 
 
 class LiveSystemKeyboardTestCase(unittest.TestCase):
+    @patch("pyanaconda.modules.localization.live_keyboard._get_live_desktop")
     @patch("pyanaconda.modules.localization.live_keyboard.conf")
-    def test_get_live_keyboard_instance(self, mocked_conf):
+    def test_get_live_keyboard_instance(self, mocked_conf, mocked_get_desktop):
         """Test get_live_keyboard_instance function."""
         mocked_conf.system.provides_liveuser = True
+
+        # test the KDE Plasma desktop
+        mocked_get_desktop.return_value = "kde"
+        assert isinstance(get_live_keyboard_instance(), KdePlasmaKeyboard)
+
+        # test the GNOME Shell desktop
+        mocked_get_desktop.return_value = "gnome"
         assert isinstance(get_live_keyboard_instance(), GnomeShellKeyboard)
 
-        mocked_conf.reset_mock()
+        # test an unknown desktop, GNOME Shell is assumed
+        mocked_get_desktop.return_value = None
+        assert isinstance(get_live_keyboard_instance(), GnomeShellKeyboard)
+
+        # test a system without the live user
         mocked_conf.system.provides_liveuser = False
         assert get_live_keyboard_instance() is None
+
+    @patch("pyanaconda.modules.localization.live_keyboard._get_running_process_names")
+    def test_get_live_desktop(self, mocked_get_process_names):
+        """Test the desktop environment detection."""
+        # test the KDE Plasma desktop
+        mocked_get_process_names.return_value = ["plasmashell", "bash", "kded6"]
+        assert _get_live_desktop() == "kde"
+
+        # test the GNOME Shell desktop
+        mocked_get_process_names.return_value = ["gnome-shell", "bash", "gdm"]
+        assert _get_live_desktop() == "gnome"
+
+        # test an unknown desktop
+        mocked_get_process_names.return_value = ["bash", "gdm"]
+        assert _get_live_desktop() is None
+
+        # test a system with multiple desktops detected
+        mocked_get_process_names.return_value = ["plasmashell", "gnome-shell"]
+        assert _get_live_desktop() is None
 
     def _check_gnome_shell_layouts_conversion(self, mocked_exec_with_capture, system_input, output):
         mocked_exec_with_capture.reset_mock()
@@ -89,3 +120,101 @@ class LiveSystemKeyboardTestCase(unittest.TestCase):
             system_input=r"wrong input",
             output=[]
         )
+
+    def _check_kde_layouts_conversion(self, mocked_exec_with_capture,
+                                      layouts, variants, output):
+        mocked_exec_with_capture.reset_mock()
+
+        def _mock_kreadconfig(command, argv, **kwargs):
+            if "LayoutList" in argv:
+                return layouts
+            return variants
+
+        mocked_exec_with_capture.side_effect = _mock_kreadconfig
+
+        kde = KdePlasmaKeyboard()
+        assert kde.read_keyboard_layouts() == output
+
+    @patch("pyanaconda.modules.localization.live_keyboard.shutil.which")
+    @patch("pyanaconda.modules.localization.live_keyboard.execWithCaptureAsLiveUser")
+    def test_kde_plasma_keyboard(self, mocked_exec_with_capture, mocked_which):
+        """Test KdePlasmaKeyboard live instance layouts."""
+        mocked_which.return_value = "/usr/bin/kreadconfig6"
+
+        # test one simple layout set
+        self._check_kde_layouts_conversion(
+            mocked_exec_with_capture=mocked_exec_with_capture,
+            layouts="cz",
+            variants="",
+            output=["cz"]
+        )
+
+        # test one layout with a variant
+        self._check_kde_layouts_conversion(
+            mocked_exec_with_capture=mocked_exec_with_capture,
+            layouts="cz",
+            variants="qwerty",
+            output=["cz (qwerty)"]
+        )
+
+        # test multiple layouts with variants
+        self._check_kde_layouts_conversion(
+            mocked_exec_with_capture=mocked_exec_with_capture,
+            layouts="us,cz,de",
+            variants=",qwerty,dvorak",
+            output=["us", "cz (qwerty)", "de (dvorak)"]
+        )
+
+        # test a variant list shorter than the layout list
+        self._check_kde_layouts_conversion(
+            mocked_exec_with_capture=mocked_exec_with_capture,
+            layouts="us,cz,de",
+            variants=",qwerty",
+            output=["us", "cz (qwerty)", "de"]
+        )
+
+        # test a missing layout list
+        self._check_kde_layouts_conversion(
+            mocked_exec_with_capture=mocked_exec_with_capture,
+            layouts="",
+            variants="",
+            output=[]
+        )
+
+        # test a malformed layout list
+        self._check_kde_layouts_conversion(
+            mocked_exec_with_capture=mocked_exec_with_capture,
+            layouts="us,,de",
+            variants=",,",
+            output=["us", "de"]
+        )
+
+    @patch("pyanaconda.modules.localization.live_keyboard.shutil.which")
+    @patch("pyanaconda.modules.localization.live_keyboard.execWithCaptureAsLiveUser")
+    def test_kde_kreadconfig_command(self, mocked_exec_with_capture, mocked_which):
+        """Test the selection of the kreadconfig command."""
+        mocked_exec_with_capture.side_effect = \
+            lambda command, argv, **kwargs: "us" if "LayoutList" in argv else ""
+
+        # test the Plasma 6 tool
+        mocked_which.side_effect = lambda command: \
+            "/usr/bin/kreadconfig6" if command == "kreadconfig6" else None
+        assert KdePlasmaKeyboard().read_keyboard_layouts() == ["us"]
+
+        # test the Plasma 5 tool
+        mocked_which.side_effect = lambda command: \
+            "/usr/bin/kreadconfig5" if command == "kreadconfig5" else None
+        assert KdePlasmaKeyboard().read_keyboard_layouts() == ["us"]
+
+        # test no tool available
+        mocked_which.side_effect = lambda command: None
+        assert KdePlasmaKeyboard().read_keyboard_layouts() == ["us"]
+
+    @patch("pyanaconda.modules.localization.live_keyboard.shutil.which")
+    @patch("pyanaconda.modules.localization.live_keyboard.execWithCaptureAsLiveUser")
+    def test_kde_read_config_error(self, mocked_exec_with_capture, mocked_which):
+        """Test a failure to read the KDE configuration."""
+        mocked_which.return_value = "/usr/bin/kreadconfig6"
+        mocked_exec_with_capture.side_effect = OSError("Cannot run the command.")
+
+        assert KdePlasmaKeyboard().read_keyboard_layouts() == []

@@ -153,6 +153,11 @@ class SystemSection(Section):
         return self._get_option("can_detect_enabled_smt", bool)
 
     @property
+    def web_ui_enabled(self):
+        """Should we allow the Web UI to be used?"""
+        return self._get_option("web_ui_enabled", bool)
+
+    @property
     def provides_network_config(self):
         """Can we copy network configuration to the target system?
 

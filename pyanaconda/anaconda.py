@@ -25,6 +25,7 @@ import threading
 from pyanaconda.core.constants import DisplayModes, PAYLOAD_TYPE_RPM_OSTREE, ADDON_PATHS, \
     PAYLOAD_TYPE_LIVE_IMAGE
 from pyanaconda.core import constants
+from pyanaconda.core.configuration.anaconda import conf
 from pyanaconda.core.startup.dbus_launcher import AnacondaDBusLauncher
 from pyanaconda.core.kernel import kernel_arguments
 from pyanaconda.core.path import open_with_perm
@@ -150,7 +151,10 @@ class Anaconda(object):
 
     @property
     def is_webui_supported(self):
-        "Report if webui package is installed"
+        "Report if webui package is installed and the Web UI is allowed"
+        if not conf.system.web_ui_enabled:
+            return False
+
         return os.path.exists("/usr/share/cockpit/anaconda-webui")
 
     def log_display_mode(self):

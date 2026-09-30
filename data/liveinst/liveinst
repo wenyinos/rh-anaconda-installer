@@ -66,6 +66,23 @@ if (! sestatus | grep -q enabled) then
     ANACONDA="$ANACONDA --noselinux"
 fi
 
+# Show a message to the user in a dialog of the running desktop environment
+# and fall back to the standard error output.
+show_message() {
+    local kind="$1"  # "error" or "warning"
+    local title="$2"
+    local text="$3"
+
+    if which kdialog &> /dev/null; then
+        kdialog --title "$title" --"$kind" "$text"
+    elif which zenity &> /dev/null; then
+        zenity --"$kind" --no-markup --title="$title" --text="$text"
+    else
+        echo "$title" >&2
+        echo "$text" >&2
+    fi
+}
+
 # Process cmdline args
 for opt in $(cat /proc/cmdline) "$@"; do
     case $opt in
@@ -85,47 +102,23 @@ for opt in $(cat /proc/cmdline) "$@"; do
         UPDATES="${opt#--inst.updates=}"
         ;;
     --updates)
-        title="updates error"
-        text="liveinst requires --updates=<url> instead of --updates <url>"
-        if which zenity &> /dev/null; then
-            zenity --error --no-markup --title="$title" --text="$text"
-        else
-            echo "$title" >&2
-            echo "$text" >&2
-        fi
+        show_message error "updates error" \
+            "liveinst requires --updates=<url> instead of --updates <url>"
         exit 1
         ;;
     ks=*|kickstart=*|--ks=*|--kickstart=*|inst.ks=*|--inst.ks=*|inst.kickstart=*|--inst-kickstart=*)
-        title="Configuration not supported"
-        text="Kickstart is not supported on Live ISO installs, please use netinstall or standard ISO.  This installation will continue interactively."
-        if which zenity &> /dev/null; then
-            zenity --warning --title="$title" --text="$text"
-         else
-            echo "$title" >&2
-            echo "$text" >&2
-         fi
+        show_message warning "Configuration not supported" \
+            "Kickstart is not supported on Live ISO installs, please use netinstall or standard ISO.  This installation will continue interactively."
         ;;
     rescue|--rescue)
-        title="Configuration not supported"
-        text="Rescue mode is not supported on live media.  Please use the normal system tools to recover your system."
-        if which zenity &> /dev/null; then
-            zenity --warning --title="$title" --text="$text"
-         else
-            echo "$title" >&2
-            echo "$text" >&2
-         fi
-         exit 1
+        show_message warning "Configuration not supported" \
+            "Rescue mode is not supported on live media.  Please use the normal system tools to recover your system."
+        exit 1
         ;;
     vnc|--vnc)
-        title="Configuration not supported"
-        text="VNC is not supported on live media."
-        if which zenity &> /dev/null; then
-            zenity --warning --title="$title" --text="$text"
-         else
-            echo "$title" >&2
-            echo "$text" >&2
-         fi
-         exit 1
+        show_message warning "Configuration not supported" \
+            "VNC is not supported on live media."
+        exit 1
         ;;
     esac
 done

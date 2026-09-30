@@ -222,6 +222,18 @@ class AnacondaConfigurationTestCase(unittest.TestCase):
         from pyanaconda.core.configuration.anaconda import conf
         assert conf.anaconda.debug is False
 
+    def test_web_ui_enabled(self):
+        """Test the Web UI configuration option."""
+        from pyanaconda.core.configuration.anaconda import conf
+
+        # The Web UI is allowed by default.
+        assert conf.system.web_ui_enabled is True
+
+        # The option can be disabled in a configuration file.
+        parser = conf.get_parser()
+        parser["Installation System"]["web_ui_enabled"] = "False"
+        assert conf.system.web_ui_enabled is False
+
     def test_source(self):
         conf = AnacondaConfiguration()
         sources = conf.get_sources()
